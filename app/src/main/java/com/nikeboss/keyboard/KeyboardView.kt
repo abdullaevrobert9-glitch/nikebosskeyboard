@@ -126,7 +126,9 @@ class KeyboardView(context: Context) : View(context) {
                                 invalidate()
                             }
                             else -> {
-                                val ch = if (isShift) label.uppercase() else label
+                                val prefs = context.getSharedPreferences("nikeboss_keyboard", Context.MODE_PRIVATE)
+                                val heightPercent = prefs.getInt("height", 60) / 100f
+                                val height = (width * heightPercent).toInt()
                                 service.onKeyPress(ch[0].code)
                                 if (isShift) {
                                     isShift = false
