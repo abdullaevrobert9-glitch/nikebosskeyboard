@@ -44,10 +44,12 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val width = MeasureSpec.getSize(widthMeasureSpec)
-        val height = (width * 0.65).toInt() // высота = 65% от ширины
-        setMeasuredDimension(width, height)
-    }
+    val width = MeasureSpec.getSize(widthMeasureSpec)
+    val prefs = context.getSharedPreferences("nikeboss_keyboard", Context.MODE_PRIVATE)
+    val heightPercent = prefs.getInt("height", 60) / 100f
+    val height = (width * heightPercent).toInt()
+    setMeasuredDimension(width, height)
+}
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -108,43 +110,38 @@ class KeyboardView(context: Context) : View(context) {
         canvas.drawText(label, rect.centerX(), centerY, textPaint)
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_DOWN) {
-            keyRects.forEach { (rect, label) ->
-                if (rect.contains(event.x, event.y)) {
-                    (context as? KeyboardService)?.let { service ->
-                        when (label) {
-                            "SPACE" -> service.onKeyPress(KEY_SPACE)
-                            "DELETE" -> service.onKeyPress(KEY_DELETE)
-                            "ENTER" -> service.onKeyPress(KEY_ENTER)
-                            "SHIFT" -> {
-                                isShift = !isShift
+     override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (event.action == MotionEvent.ACTION_DOWN) {
+        keyRects.forEach { (rect, label) ->
+            if (rect.contains(event.x, event.y)) {
+                val service = context as? KeyboardService
+                service?.let {
+                    when (label) {
+                        "SPACE" -> it.onKeyPress(KEY_SPACE)
+                        "DELETE" -> it.onKeyPress(KEY_DELETE)
+                        "ENTER" -> it.onKeyPress(KEY_ENTER)
+                        "SHIFT" -> {
+                            isShift = !isShift
+                            invalidate()
+                        }
+                        "LANG" -> {
+                            isRussian = !isRussian
+                            invalidate()
+                        }
+                        else -> {
+                            val ch = if (isShift) label.uppercase() else label
+                            it.onKeyPress(ch[0].code)
+                            if (isShift) {
+                                isShift = false
                                 invalidate()
-                            }
-                            "LANG" -> {
-                                isRussian = !isRussian
-                                invalidate()
-                            }
-                            else -> {
-                                val prefs = context.getSharedPreferences("nikeboss_keyboard", Context.MODE_PRIVATE)
-                                val heightPercent = prefs.getInt("height", 60) / 100f
-                                val height = (width * heightPercent).toInt()
-                                service.onKeyPress(ch[0].code)
-                                if (isShift) {
-                                    isShift = false
-                                    invalidate()
-                                }
                             }
                         }
                     }
-                    performClick()
-                    return true
                 }
+                performClick()
+                return true
             }
         }
-        return super.onTouchEvent(event)
     }
-
-    override fun performClick(): Boolean = super.performClick()
+    return super.onTouchEvent(event)
 }
-
