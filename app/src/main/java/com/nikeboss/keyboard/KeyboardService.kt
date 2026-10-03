@@ -1,11 +1,17 @@
 package com.nikeboss.keyboard
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -22,23 +28,79 @@ class KeyboardService : InputMethodService() {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
+    // ДИАГНОСТИКА (временно): при зависании или краше пишет место в буфер обмена
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var lastTick = SystemClock.uptimeMillis()
+    @Volatile private var watching = false
+    @Volatile private var reported = false
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            lastTick = SystemClock.uptimeMillis()
+            mainHandler.postDelayed(this, 300)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            report("CRASH in thread " + thread.name + "\n" + Log.getStackTraceString(error))
+            previous?.uncaughtException(thread, error)
+        }
+
+        mainHandler.post(ticker)
+
+        val watchdog = Thread {
+            while (!reported) {
+                try {
+                    Thread.sleep(300)
+                } catch (e: InterruptedException) {
+                    return@Thread
+                }
+                if (watching && SystemClock.uptimeMillis() - lastTick > 2500) {
+                    val trace = Looper.getMainLooper().thread.stackTrace
+                        .joinToString("\n") { "  at $it" }
+                    report("MAIN THREAD STUCK more than 2.5s\n$trace")
+                }
+            }
+        }
+        watchdog.isDaemon = true
+        watchdog.start()
+    }
+
+    private fun report(text: String) {
+        if (reported) return
+        reported = true
+        Log.e("NikeBoss", text)
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("nikeboss-debug", text))
+        } catch (ignored: Throwable) {
+        }
+    }
+
     override fun onCreateInputView(): View {
+        lastTick = SystemClock.uptimeMillis()
+        watching = true
         val view = KeyboardView(this)
         keyboardView = view
         return view
     }
 
-    // Каждый раз, когда клавиатура показывается: сброс слоя/Shift и применение высоты
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        lastTick = SystemClock.uptimeMillis()
+        watching = true
         keyboardView?.onShow()
     }
 
-    /**
-     * code > 0  -> символ (кодпоинт)
-     * KEY_DELETE / KEY_ENTER / KEY_SPACE -> спецклавиши
-     * feedback = false нужен для автоповтора Delete (без вибрации и звука на каждый повтор)
-     */
+    override fun onFinishInputView(finishingInput: Boolean) {
+        watching = false
+        super.onFinishInputView(finishingInput)
+    }
+
     fun onKeyPress(code: Int, feedback: Boolean = true) {
         val ic = currentInputConnection ?: return
         if (feedback) giveFeedback()
@@ -71,10 +133,8 @@ class KeyboardService : InputMethodService() {
     private fun deleteBackward(ic: InputConnection) {
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
-            // Есть выделение: удаляем его целиком
             ic.commitText("", 1)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // По кодпоинтам, чтобы не ломать эмодзи (суррогатные пары)
             ic.deleteSurroundingTextInCodePoints(1, 0)
         } else {
             ic.deleteSurroundingText(1, 0)
@@ -91,7 +151,6 @@ class KeyboardService : InputMethodService() {
             action != EditorInfo.IME_ACTION_NONE &&
             action != EditorInfo.IME_ACTION_UNSPECIFIED
         ) {
-            // Поиск / Отправить / Далее и т.п.
             ic.performEditorAction(action)
         } else {
             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
