@@ -93,6 +93,14 @@ class KeyboardService : InputMethodService() {
         }
     }
 
+    /** Вставка готовой строки (смайлы). */
+    fun onTextCommit(text: String, feedback: Boolean = true) {
+        val ic = currentInputConnection ?: return
+        if (feedback) giveFeedback()
+        autoSpaceAfterComma = false
+        ic.commitText(text, 1)
+    }
+
     // Вибрация и звук никогда не должны ронять набор текста
     private fun giveFeedback() {
         val prefs = getSharedPreferences("nikeboss_keyboard", Context.MODE_PRIVATE)
@@ -123,10 +131,15 @@ class KeyboardService : InputMethodService() {
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
             ic.commitText("", 1)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            ic.deleteSurroundingTextInCodePoints(1, 0)
         } else {
-            ic.deleteSurroundingText(1, 0)
+            // смайл вроде сердца состоит из двух кодовых точек (символ + FE0F): удаляем целиком
+            val before = ic.getTextBeforeCursor(2, 0)
+            val n = if (before != null && before.isNotEmpty() && before.last() == '\uFE0F') 2 else 1
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                ic.deleteSurroundingTextInCodePoints(n, 0)
+            } else {
+                ic.deleteSurroundingText(n, 0)
+            }
         }
     }
 

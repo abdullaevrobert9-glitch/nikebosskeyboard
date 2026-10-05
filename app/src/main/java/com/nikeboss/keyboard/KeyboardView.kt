@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.abs
 
 class KeyboardView(context: Context) : View(context) {
 
@@ -24,7 +25,10 @@ class KeyboardView(context: Context) : View(context) {
 
         private const val PREFS = "nikeboss_keyboard"
         private const val PREF_LANG_RU = "lang_ru"
+        private const val PREF_EMOJI_RECENT = "emoji_recent"
         private const val LONG_PRESS_MS = 350L
+        private const val EMOJI_COLS = 8
+        private const val EMOJI_RECENT_MAX = 32
 
         // Палитра NikeBoss
         private val COLOR_BG = Color.parseColor("#0A0A12")
@@ -74,6 +78,24 @@ class KeyboardView(context: Context) : View(context) {
         "n" to listOf("ñ")
     )
 
+    // ───────────────────────── смайлы ─────────────────────────
+    // Вкладка 0 это недавние, остальные вкладки берутся из emojiSets (на 1 меньше значков)
+
+    private val emojiIcons = listOf("🕘", "😀", "👋", "\u2764\uFE0F", "🐶", "🍔", "📱")
+
+    private val emojiSets: List<List<String>> = listOf(
+        parseEmoji("😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖"),
+        parseEmoji("👍 👎 👌 \u270C\uFE0F 🤞 🤟 🤘 🤙 👈 👉 👆 👇 \u261D\uFE0F ✋ 🤚 🖖 👋 👏 🙌 👐 🤲 🤝 🙏 💪 👀 👂 👃 🧠 👄 💋 👅 🙈 🙉 🙊"),
+        parseEmoji("\u2764\uFE0F 🧡 💛 💚 💙 💜 🖤 💔 \u2763\uFE0F 💕 💞 💓 💗 💖 💘 💝 💟 ✨ 🔥 💯 💥 💫 💦 💤 💢 ⭐ 🌟 🎉 🎊 🎁 🏆 🥇 🎯 ✅ ❌ ❓ ❗ ⚡ 🚀 🌈"),
+        parseEmoji("🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🐢 🐍 🐙 🦑 🦀 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐘 🦒 🐪 🐕 🐈 🌸 🌹 🌻 🌷 🌲 🌴 🍀 🍁"),
+        parseEmoji("🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🍈 🍒 🍑 🍍 🥥 🥝 🍅 🥑 🍆 🥔 🥕 🌽 🥦 🍄 🥜 🍞 🥐 🧀 🍖 🍗 🥩 🍔 🍟 🍕 🌭 🌮 🌯 🥙 🍳 🍜 🍝 🍣 🍤 🍙 🍚 🍦 🍩 🍪 🎂 🍰 🍫 🍬 🍭 ☕ 🍵 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🥤"),
+        parseEmoji("📱 💻 ⌚ 📷 🎧 🎮 🎬 🎵 🎶 📚 📌 📎 🔑 🔒 🔓 💡 🔋 💰 💳 💎 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🚗 🚕 🚌 🚲 🏠 🌍 🌙 ⛄ ⏰ ⌛ 📅 📞 📧 🔔 👑 💼 🎒 👓 🎈 🎤 🎸 🎹 🎲 🧩")
+    )
+
+    private val recents = ArrayList<String>()
+
+    private fun parseEmoji(s: String): List<String> = s.trim().split(" ").filter { it.isNotEmpty() }
+
     private var isRussian = true
     private var symbols = false
     private var shift = ShiftState.OFF
@@ -85,6 +107,8 @@ class KeyboardView(context: Context) : View(context) {
     private val dp = resources.displayMetrics.density
     private val pad = 5f * dp
     private val radius = 8f * dp
+    private val barH = 36f * dp   // верхняя панель с кнопкой смайлов
+    private val slop = 8f * dp    // порог, после которого касание считается прокруткой
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -95,6 +119,26 @@ class KeyboardView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
     private val tmpRect = RectF()
+
+    // Верхняя панель и панель смайлов
+    private val emojiBtn = RectF()
+    private val emojiGrid = RectF()
+    private val abcRect = RectF()
+    private val delRect = RectF()
+    private val tabRects = Array(emojiIcons.size) { RectF() }
+    private var tabsLeft = 0f
+    private var tabW = 1f
+
+    private var barPressed = false
+    private var emojiMode = false
+    private var emojiCat = 0
+    private var emojiScroll = 0f
+    private var emojiScrollStart = 0f
+    private var emojiDownX = 0f
+    private var emojiDownY = 0f
+    private var emojiDragging = false
+    private var emojiTouch = 0 // 0 нет, 1 сетка, 2 delete, 3 ABC, 4 вкладка
+    private var emojiTabDown = -1
 
     // Долгое нажатие: меню выбора символа
     private var pendingKey: Key? = null
@@ -122,6 +166,7 @@ class KeyboardView(context: Context) : View(context) {
         setBackgroundColor(COLOR_BG)
         isRussian = prefs().getBoolean(PREF_LANG_RU, true)
         rows = buildRows()
+        loadRecents()
     }
 
     private fun prefs() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -169,13 +214,13 @@ class KeyboardView(context: Context) : View(context) {
     private fun layoutKeys() {
         if (width == 0 || height == 0 || rows.isEmpty()) return
         val w = width.toFloat()
-        val h = height.toFloat()
+        val h = height.toFloat() - barH
         val keyH = (h - pad * (rows.size + 1)) / rows.size
 
         rows.forEachIndexed { r, row ->
             val totalWeight = row.fold(0f) { acc, k -> acc + k.weight }
             val unit = (w - pad * (row.size + 1)) / totalWeight
-            val top = pad + r * (keyH + pad)
+            val top = barH + pad + r * (keyH + pad)
             var x = pad
             for (k in row) {
                 val kw = unit * k.weight
@@ -183,6 +228,39 @@ class KeyboardView(context: Context) : View(context) {
                 x += kw + pad
             }
         }
+    }
+
+    private fun layoutBar() {
+        val bh = barH - 2 * pad
+        val bw = bh * 1.6f
+        emojiBtn.set(width.toFloat() - pad - bw, pad, width.toFloat() - pad, pad + bh)
+    }
+
+    private fun layoutEmoji() {
+        if (width == 0 || height == 0) return
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val stripH = maxOf(44f * dp, (h - barH) * 0.18f)
+        emojiGrid.set(0f, barH, w, h - stripH)
+
+        val top = h - stripH + pad
+        val bottom = h - pad
+        val btnW = w * 0.14f
+        abcRect.set(pad, top, pad + btnW, bottom)
+        delRect.set(w - pad - btnW, top, w - pad, bottom)
+
+        tabsLeft = abcRect.right + pad
+        val tabsRight = delRect.left - pad
+        tabW = (tabsRight - tabsLeft) / emojiIcons.size
+        for (i in emojiIcons.indices) {
+            tabRects[i].set(tabsLeft + i * tabW + pad / 2, top, tabsLeft + (i + 1) * tabW - pad / 2, bottom)
+        }
+    }
+
+    private fun layoutAll() {
+        layoutKeys()
+        layoutBar()
+        layoutEmoji()
     }
 
     private fun rebuild() {
@@ -195,6 +273,9 @@ class KeyboardView(context: Context) : View(context) {
     fun onShow() {
         symbols = false
         shift = ShiftState.OFF
+        emojiMode = false
+        emojiTouch = 0
+        barPressed = false
         active.clear()
         stopRepeat()
         cancelKeyLongPress()
@@ -219,17 +300,22 @@ class KeyboardView(context: Context) : View(context) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val heightPercent = prefs().getInt("height", 60) / 100f
-        val height = (width * heightPercent).toInt()
-        setMeasuredDimension(width, height)
+        val keysHeight = (width * heightPercent).toInt()
+        setMeasuredDimension(width, keysHeight + barH.toInt())
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        layoutKeys()
+        layoutAll()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        drawBar(canvas)
+        if (emojiMode) {
+            drawEmojiPanel(canvas)
+            return
+        }
         val pressed = active.values
         for (row in rows) {
             for (k in row) {
@@ -238,6 +324,32 @@ class KeyboardView(context: Context) : View(context) {
             }
         }
         drawPopup(canvas)
+    }
+
+    private fun drawBtn(canvas: Canvas, r: RectF, label: String, fill: Int, sizeFactor: Float) {
+        fillPaint.color = fill
+        canvas.drawRoundRect(r, radius, radius, fillPaint)
+        textPaint.color = COLOR_TEXT
+        textPaint.textSize = r.height() * sizeFactor
+        val cy = r.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
+        canvas.drawText(label, r.centerX(), cy, textPaint)
+    }
+
+    private fun drawBar(canvas: Canvas) {
+        // название слева
+        textPaint.color = COLOR_PURPLE
+        textPaint.textSize = barH * 0.36f
+        val cy = barH / 2 - (textPaint.descent() + textPaint.ascent()) / 2
+        val tw = textPaint.measureText("NikeBoss")
+        canvas.drawText("NikeBoss", pad * 3 + tw / 2, cy, textPaint)
+
+        // кнопка смайлов справа (в режиме смайлов превращается в ABC)
+        val fill = when {
+            barPressed -> COLOR_PRESSED
+            emojiMode -> COLOR_PURPLE
+            else -> COLOR_SPECIAL
+        }
+        drawBtn(canvas, emojiBtn, if (emojiMode) "ABC" else "😊", fill, if (emojiMode) 0.42f else 0.62f)
     }
 
     private fun drawKey(canvas: Canvas, k: Key, pressed: Boolean) {
@@ -317,6 +429,155 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    private fun drawEmojiPanel(canvas: Canvas) {
+        val list = currentEmojis()
+        val cell = width.toFloat() / EMOJI_COLS
+
+        canvas.save()
+        canvas.clipRect(emojiGrid)
+        if (list.isEmpty()) {
+            textPaint.color = COLOR_TEXT
+            textPaint.textSize = cell * 0.3f
+            val cy = emojiGrid.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
+            canvas.drawText("Пока пусто", width / 2f, cy, textPaint)
+        } else {
+            textPaint.color = COLOR_TEXT
+            textPaint.textSize = cell * 0.55f
+            val cyOff = -(textPaint.descent() + textPaint.ascent()) / 2
+            val first = (emojiScroll / cell).toInt()
+            val last = ((emojiScroll + emojiGrid.height()) / cell).toInt() + 1
+            for (r in first..last) {
+                for (c in 0 until EMOJI_COLS) {
+                    val i = r * EMOJI_COLS + c
+                    if (i >= list.size) break
+                    val cx = c * cell + cell / 2
+                    val cy = emojiGrid.top + r * cell - emojiScroll + cell / 2 + cyOff
+                    canvas.drawText(list[i], cx, cy, textPaint)
+                }
+            }
+        }
+        canvas.restore()
+
+        // нижняя полоса: ABC, вкладки категорий, удалить
+        drawBtn(canvas, abcRect, "ABC", if (emojiTouch == 3) COLOR_PRESSED else COLOR_SPECIAL, 0.36f)
+        drawBtn(canvas, delRect, "⌫", if (emojiTouch == 2) COLOR_PRESSED else COLOR_SPECIAL, 0.42f)
+        for (i in emojiIcons.indices) {
+            val fill = when {
+                emojiTouch == 4 && emojiTabDown == i -> COLOR_PRESSED
+                i == emojiCat -> COLOR_PURPLE
+                else -> COLOR_SPECIAL
+            }
+            drawBtn(canvas, tabRects[i], emojiIcons[i], fill, 0.5f)
+        }
+    }
+
+    // ───────────────────────── смайлы: данные и действия ─────────────────────────
+
+    private fun currentEmojis(): List<String> =
+        if (emojiCat == 0) recents else emojiSets[emojiCat - 1]
+
+    private fun loadRecents() {
+        val s = prefs().getString(PREF_EMOJI_RECENT, "") ?: ""
+        recents.clear()
+        recents.addAll(s.split("|").filter { it.isNotEmpty() })
+    }
+
+    private fun addRecent(e: String) {
+        recents.remove(e)
+        recents.add(0, e)
+        while (recents.size > EMOJI_RECENT_MAX) recents.removeAt(recents.size - 1)
+        prefs().edit().putString(PREF_EMOJI_RECENT, recents.joinToString("|")).apply()
+    }
+
+    private fun maxEmojiScroll(): Float {
+        val cell = width.toFloat() / EMOJI_COLS
+        val rowsN = (currentEmojis().size + EMOJI_COLS - 1) / EMOJI_COLS
+        return maxOf(0f, rowsN * cell - emojiGrid.height())
+    }
+
+    private fun toggleEmoji() {
+        emojiMode = !emojiMode
+        active.clear()
+        stopRepeat()
+        cancelKeyLongPress()
+        closePopup()
+        emojiTouch = 0
+        emojiScroll = 0f
+        if (emojiMode) emojiCat = if (recents.isEmpty()) 1 else 0
+        invalidate()
+    }
+
+    private fun tabIndexAt(x: Float): Int =
+        ((x - tabsLeft) / tabW).toInt().coerceIn(0, emojiIcons.size - 1)
+
+    private fun pickEmojiAt(x: Float, y: Float) {
+        val list = currentEmojis()
+        val cell = width.toFloat() / EMOJI_COLS
+        val col = (x / cell).toInt().coerceIn(0, EMOJI_COLS - 1)
+        val row = ((y - emojiGrid.top + emojiScroll) / cell).toInt()
+        val idx = row * EMOJI_COLS + col
+        if (row < 0 || idx !in list.indices) return
+        val e = list[idx]
+        // в «Недавних» порядок не меняем, чтобы смайлы не прыгали под пальцем
+        if (emojiCat != 0) addRecent(e)
+        (context as? KeyboardService)?.onTextCommit(e)
+    }
+
+    private fun onEmojiTouch(event: MotionEvent): Boolean {
+        val service = context as? KeyboardService
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                emojiDownX = event.x
+                emojiDownY = event.y
+                emojiScrollStart = emojiScroll
+                emojiDragging = false
+                emojiTabDown = -1
+                if (event.y < emojiGrid.bottom) {
+                    emojiTouch = 1
+                } else if (event.x <= abcRect.right + pad / 2) {
+                    emojiTouch = 3
+                } else if (event.x >= delRect.left - pad / 2) {
+                    emojiTouch = 2
+                    service?.onKeyPress(KEY_DELETE)
+                    startRepeat()
+                } else {
+                    emojiTouch = 4
+                    emojiTabDown = tabIndexAt(event.x)
+                }
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (emojiTouch == 1) {
+                    val dy = event.y - emojiDownY
+                    if (!emojiDragging && abs(dy) > slop) emojiDragging = true
+                    if (emojiDragging) {
+                        emojiScroll = (emojiScrollStart - dy).coerceIn(0f, maxEmojiScroll())
+                        invalidate()
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                when (emojiTouch) {
+                    1 -> if (!emojiDragging) pickEmojiAt(emojiDownX, emojiDownY)
+                    2 -> stopRepeat()
+                    3 -> toggleEmoji()
+                    4 -> if (emojiTabDown >= 0) {
+                        emojiCat = emojiTabDown
+                        emojiScroll = 0f
+                    }
+                }
+                emojiTouch = 0
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                stopRepeat()
+                emojiTouch = 0
+                invalidate()
+            }
+        }
+        return true
+    }
+
     // ───────────────────────── долгое нажатие ─────────────────────────
 
     private fun alternativesFor(k: Key): List<String> {
@@ -380,9 +641,9 @@ class KeyboardView(context: Context) : View(context) {
     // ───────────────────────── касания (мультитач) ─────────────────────────
 
     private fun keyAt(x: Float, y: Float): Key? {
-        if (rows.isEmpty() || height == 0) return null
-        val rowHeight = height.toFloat() / rows.size
-        val r = (y / rowHeight).toInt().coerceIn(0, rows.size - 1)
+        if (rows.isEmpty() || height == 0 || y < barH) return null
+        val rowHeight = (height - barH) / rows.size
+        val r = ((y - barH) / rowHeight).toInt().coerceIn(0, rows.size - 1)
         var best: Key? = null
         var bestDist = Float.MAX_VALUE
         for (k in rows[r]) {
@@ -402,7 +663,28 @@ class KeyboardView(context: Context) : View(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
+        val action = event.actionMasked
+
+        // верхняя панель: кнопка смайлов (работает в обоих режимах)
+        if (action == MotionEvent.ACTION_DOWN && event.y < barH) {
+            barPressed = event.x >= emojiBtn.left - 2 * pad
+            invalidate()
+            return true
+        }
+        if (barPressed) {
+            if (action == MotionEvent.ACTION_UP) {
+                barPressed = false
+                toggleEmoji()
+            } else if (action == MotionEvent.ACTION_CANCEL) {
+                barPressed = false
+                invalidate()
+            }
+            return true
+        }
+
+        if (emojiMode) return onEmojiTouch(event)
+
+        when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = event.actionIndex
                 val key = keyAt(event.getX(i), event.getY(i))
