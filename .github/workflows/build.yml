@@ -26,8 +26,17 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: nikeboss-keyboard-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Build Release APK
+        run: gradle assembleRelease
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nikeboss-keyboard-release
+          path: app/build/outputs/apk/release/*.apk

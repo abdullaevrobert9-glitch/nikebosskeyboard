@@ -15,6 +15,23 @@ android {
         versionName "1.0"
     }
 
+signingConfigs {
+    release {
+        storeFile file("../../my-release-key.jks")
+        storePassword "твой_пароль"
+        keyAlias "my-key-alias"
+        keyPassword "твой_пароль"
+    }
+}
+
+buildTypes {
+    release {
+        signingConfig signingConfigs.release
+        minifyEnabled false
+        proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+}
+
     buildTypes {
         release {
             minifyEnabled false

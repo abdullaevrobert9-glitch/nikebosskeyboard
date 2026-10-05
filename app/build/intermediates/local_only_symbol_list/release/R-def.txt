@@ -1,0 +1,18 @@
+R_DEF: Internal format may change without notice
+local
+color bg_dark
+color bg_key
+color neon_blue
+color neon_purple
+color neon_red
+color text_main
+id seek_height
+id switch_sound
+id switch_vibration
+layout settings
+mipmap ic_launcher
+string app_name
+string keyboard_name
+string settings_title
+style Theme.NikeBossKeyboard
+xml method
