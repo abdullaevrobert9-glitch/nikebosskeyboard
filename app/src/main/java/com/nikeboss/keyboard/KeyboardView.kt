@@ -197,7 +197,7 @@ class KeyboardView(context: Context) : View(context) {
         shift = ShiftState.OFF
         active.clear()
         stopRepeat()
-        cancelLongPress()
+        cancelKeyLongPress()
         closePopup()
         rebuild()
         requestLayout() // подхватить высоту из настроек
@@ -371,7 +371,7 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun cancelLongPress() {
+    private fun cancelKeyLongPress() {
         handler.removeCallbacks(longPressRunnable)
         pendingKey = null
         pendingPointer = -1
@@ -431,7 +431,7 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> {
                 active.clear()
                 stopRepeat()
-                cancelLongPress()
+                cancelKeyLongPress()
                 closePopup()
                 invalidate()
             }
@@ -445,7 +445,7 @@ class KeyboardView(context: Context) : View(context) {
             Kind.CHAR -> {
                 // Буква печатается при отпускании (см. onKeyUp), чтобы работало долгое нажатие
                 if (alternativesFor(k).isNotEmpty()) {
-                    cancelLongPress()
+                    cancelKeyLongPress()
                     pendingKey = k
                     pendingPointer = id
                     pendingX = x
@@ -478,7 +478,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun onKeyUp(k: Key, id: Int) {
         val service = context as? KeyboardService
-        if (id == pendingPointer) cancelLongPress()
+        if (id == pendingPointer) cancelKeyLongPress()
 
         if (k.kind == Kind.DELETE) {
             stopRepeat()
@@ -522,7 +522,7 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         stopRepeat()
-        cancelLongPress()
+        cancelKeyLongPress()
         closePopup()
         active.clear()
         super.onDetachedFromWindow()
