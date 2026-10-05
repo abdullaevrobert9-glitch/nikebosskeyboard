@@ -23,6 +23,10 @@ jobs:
         with:
           gradle-version: 8.2
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/my-release-key.jks
+
       - name: Build Debug APK
         run: gradle assembleDebug
 
@@ -33,6 +37,11 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Build Release APK
+        env:
+          RELEASE_KEYSTORE_FILE: ${{ github.workspace }}/my-release-key.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleRelease
 
       - name: Upload Release APK
