@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 
@@ -23,6 +24,7 @@ class KeyboardView(context: Context) : View(context) {
 
         private const val PREFS = "nikeboss_keyboard"
         private const val PREF_LANG_RU = "lang_ru"
+        private const val LONG_PRESS_MS = 350L
 
         // Палитра NikeBoss
         private val COLOR_BG = Color.parseColor("#0A0A12")
@@ -59,6 +61,19 @@ class KeyboardView(context: Context) : View(context) {
         listOf("*", "\"", "'", ":", ";", "!", "?")
     )
 
+    // Дополнительные символы по долгому нажатию (цифры верхнего ряда добавляются отдельно)
+    private val extraAlts = mapOf(
+        "." to listOf("!", "?", ":", ";", "…", "-"),
+        "," to listOf(";", ":"),
+        "a" to listOf("à", "á", "â", "ä", "ã", "å"),
+        "e" to listOf("è", "é", "ê", "ë"),
+        "i" to listOf("ì", "í", "î", "ï"),
+        "o" to listOf("ò", "ó", "ô", "ö", "õ"),
+        "u" to listOf("ù", "ú", "û", "ü"),
+        "c" to listOf("ç"),
+        "n" to listOf("ñ")
+    )
+
     private var isRussian = true
     private var symbols = false
     private var shift = ShiftState.OFF
@@ -79,13 +94,27 @@ class KeyboardView(context: Context) : View(context) {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
     }
+    private val tmpRect = RectF()
+
+    // Долгое нажатие: меню выбора символа
+    private var pendingKey: Key? = null
+    private var pendingPointer = -1
+    private var pendingX = 0f
+    private var popupKey: Key? = null
+    private var popupPointer = -1
+    private var popupItems: List<String> = emptyList()
+    private val popupRect = RectF()
+    private var popupItemW = 0f
+    private var popupSel = 0
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val longPressRunnable = Runnable { showPopup() }
 
     // Автоповтор Delete при удержании
-    private val repeatHandler = Handler(Looper.getMainLooper())
     private val repeatRunnable = object : Runnable {
         override fun run() {
             (context as? KeyboardService)?.onKeyPress(KEY_DELETE, feedback = false)
-            repeatHandler.postDelayed(this, 50)
+            handler.postDelayed(this, 50)
         }
     }
 
@@ -168,8 +197,21 @@ class KeyboardView(context: Context) : View(context) {
         shift = ShiftState.OFF
         active.clear()
         stopRepeat()
+        cancelLongPress()
+        closePopup()
         rebuild()
         requestLayout() // подхватить высоту из настроек
+        (context as? KeyboardService)?.let { syncShift(it.needsCapital()) }
+    }
+
+    /** Сервис сообщает, нужна ли заглавная по тексту перед курсором. Caps Lock не трогаем. */
+    fun syncShift(needCapital: Boolean) {
+        if (shift == ShiftState.LOCK) return
+        val target = if (needCapital) ShiftState.ONCE else ShiftState.OFF
+        if (shift != target) {
+            shift = target
+            invalidate()
+        }
     }
 
     // ───────────────────────── размеры и отрисовка ─────────────────────────
@@ -195,6 +237,7 @@ class KeyboardView(context: Context) : View(context) {
                 drawKey(canvas, k, pressed.contains(k))
             }
         }
+        drawPopup(canvas)
     }
 
     private fun drawKey(canvas: Canvas, k: Key, pressed: Boolean) {
@@ -248,6 +291,92 @@ class KeyboardView(context: Context) : View(context) {
         canvas.drawText(label, k.rect.centerX(), centerY, textPaint)
     }
 
+    private fun drawPopup(canvas: Canvas) {
+        if (popupKey == null || popupItems.isEmpty()) return
+
+        fillPaint.color = COLOR_SPECIAL
+        canvas.drawRoundRect(popupRect, radius, radius, fillPaint)
+        strokePaint.color = COLOR_PURPLE
+        canvas.drawRoundRect(popupRect, radius, radius, strokePaint)
+
+        textPaint.textSize = popupRect.height() * 0.4f
+        val cy = popupRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
+
+        popupItems.forEachIndexed { i, s ->
+            val left = popupRect.left + i * popupItemW
+            if (i == popupSel) {
+                fillPaint.color = COLOR_PURPLE
+                tmpRect.set(
+                    left + pad / 2, popupRect.top + pad / 2,
+                    left + popupItemW - pad / 2, popupRect.bottom - pad / 2
+                )
+                canvas.drawRoundRect(tmpRect, radius, radius, fillPaint)
+            }
+            textPaint.color = COLOR_TEXT
+            canvas.drawText(s, left + popupItemW / 2, cy, textPaint)
+        }
+    }
+
+    // ───────────────────────── долгое нажатие ─────────────────────────
+
+    private fun alternativesFor(k: Key): List<String> {
+        if (k.kind != Kind.CHAR || symbols) return emptyList()
+        val result = ArrayList<String>()
+        val letters = if (isRussian) ruRows else enRows
+        val idx = letters[0].indexOf(k.label)
+        if (idx in 0..9) result.add(((idx + 1) % 10).toString()) // цифры верхнего ряда
+        extraAlts[k.label]?.let { result.addAll(it) }
+        return if (shift != ShiftState.OFF) result.map { it.uppercase() } else result
+    }
+
+    private fun showPopup() {
+        val key = pendingKey ?: return
+        val items = alternativesFor(key)
+        if (items.isEmpty()) return
+
+        popupKey = key
+        popupItems = items
+        popupPointer = pendingPointer
+        popupItemW = key.rect.width()
+
+        val total = popupItemW * items.size
+        var left = key.rect.left
+        if (left + total > width - pad) left = width - pad - total
+        if (left < pad) left = pad
+
+        val h = key.rect.height()
+        var top = key.rect.top - h - pad
+        if (top < 0f) top = key.rect.top // верхний ряд: меню поверх самого ряда
+        popupRect.set(left, top, left + total, top + h)
+
+        popupSel = ((pendingX - left) / popupItemW).toInt().coerceIn(0, items.size - 1)
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        invalidate()
+    }
+
+    private fun updatePopupSelection(x: Float) {
+        if (popupItems.isEmpty()) return
+        val sel = ((x - popupRect.left) / popupItemW).toInt().coerceIn(0, popupItems.size - 1)
+        if (sel != popupSel) {
+            popupSel = sel
+            invalidate()
+        }
+    }
+
+    private fun closePopup() {
+        if (popupKey == null) return
+        popupKey = null
+        popupPointer = -1
+        popupItems = emptyList()
+        invalidate()
+    }
+
+    private fun cancelLongPress() {
+        handler.removeCallbacks(longPressRunnable)
+        pendingKey = null
+        pendingPointer = -1
+    }
+
     // ───────────────────────── касания (мультитач) ─────────────────────────
 
     private fun keyAt(x: Float, y: Float): Key? {
@@ -278,36 +407,49 @@ class KeyboardView(context: Context) : View(context) {
                 val i = event.actionIndex
                 val key = keyAt(event.getX(i), event.getY(i))
                 if (key != null) {
-                    active[event.getPointerId(i)] = key
-                    onKeyDown(key)
+                    val id = event.getPointerId(i)
+                    active[id] = key
+                    onKeyDown(key, id, event.getX(i))
                 }
                 invalidate()
             }
+            MotionEvent.ACTION_MOVE -> {
+                if (popupKey != null) {
+                    for (i in 0 until event.pointerCount) {
+                        if (event.getPointerId(i) == popupPointer) {
+                            updatePopupSelection(event.getX(i))
+                        }
+                    }
+                }
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                val key = active.remove(event.getPointerId(event.actionIndex))
-                if (key != null) onKeyUp(key)
+                val id = event.getPointerId(event.actionIndex)
+                val key = active.remove(id)
+                if (key != null) onKeyUp(key, id)
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
                 active.clear()
                 stopRepeat()
+                cancelLongPress()
+                closePopup()
                 invalidate()
             }
         }
         return true
     }
 
-    private fun onKeyDown(k: Key) {
+    private fun onKeyDown(k: Key, id: Int, x: Float) {
         val service = context as? KeyboardService
         when (k.kind) {
             Kind.CHAR -> {
-                val upper = !symbols && shift != ShiftState.OFF
-                val text = if (upper) k.label.uppercase() else k.label
-                service?.onKeyPress(text.codePointAt(0), commaSpace = !symbols && text == ",")
-                if (shift == ShiftState.ONCE) shift = ShiftState.OFF
-                // после конца предложения следующая буква заглавная (Caps Lock не трогаем)
-                if (!symbols && shift == ShiftState.OFF && (text == "." || text == "!" || text == "?")) {
-                    shift = ShiftState.ONCE
+                // Буква печатается при отпускании (см. onKeyUp), чтобы работало долгое нажатие
+                if (alternativesFor(k).isNotEmpty()) {
+                    cancelLongPress()
+                    pendingKey = k
+                    pendingPointer = id
+                    pendingX = x
+                    handler.postDelayed(longPressRunnable, LONG_PRESS_MS)
                 }
             }
             Kind.SPACE -> service?.onKeyPress(KEY_SPACE)
@@ -334,8 +476,27 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private fun onKeyUp(k: Key) {
-        if (k.kind == Kind.DELETE) stopRepeat()
+    private fun onKeyUp(k: Key, id: Int) {
+        val service = context as? KeyboardService
+        if (id == pendingPointer) cancelLongPress()
+
+        if (k.kind == Kind.DELETE) {
+            stopRepeat()
+            return
+        }
+        if (k.kind != Kind.CHAR) return
+
+        // Отпустили палец над меню долгого нажатия: вставляем выбранный символ
+        if (popupKey != null && id == popupPointer) {
+            val text = popupItems.getOrNull(popupSel)
+            closePopup()
+            if (text != null) service?.onKeyPress(text.codePointAt(0))
+            return
+        }
+
+        val upper = !symbols && shift != ShiftState.OFF
+        val text = if (upper) k.label.uppercase() else k.label
+        service?.onKeyPress(text.codePointAt(0), commaSpace = !symbols && text == ",")
     }
 
     // Один тап: Shift на одну букву. Двойной тап: Caps Lock. Ещё тап: выключить.
@@ -351,16 +512,18 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun startRepeat() {
-        repeatHandler.removeCallbacks(repeatRunnable)
-        repeatHandler.postDelayed(repeatRunnable, 400)
+        handler.removeCallbacks(repeatRunnable)
+        handler.postDelayed(repeatRunnable, 400)
     }
 
     private fun stopRepeat() {
-        repeatHandler.removeCallbacks(repeatRunnable)
+        handler.removeCallbacks(repeatRunnable)
     }
 
     override fun onDetachedFromWindow() {
         stopRepeat()
+        cancelLongPress()
+        closePopup()
         active.clear()
         super.onDetachedFromWindow()
     }
