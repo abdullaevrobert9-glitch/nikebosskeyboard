@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -37,18 +38,42 @@ class KeyboardService : InputMethodService() {
         keyboardView?.onShow()
     }
 
+    /** Нужна ли заглавная буква, судя по тексту перед курсором. */
+    fun needsCapital(): Boolean {
+        val info = currentInputEditorInfo ?: return false
+        val type = info.inputType
+        if ((type and InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false
+        when (type and InputType.TYPE_MASK_VARIATION) {
+            InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+            InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+            InputType.TYPE_TEXT_VARIATION_URI,
+            InputType.TYPE_TEXT_VARIATION_FILTER -> return false
+        }
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(16, 0)?.toString() ?: return false
+
+        if (before.isEmpty()) return true            // начало поля
+        if (before.last() == '\n') return true       // новая строка
+
+        val trimmed = before.trimEnd(' ', '\t')
+        if (trimmed.length == before.length) return false // после знака нет пробела
+        if (trimmed.isEmpty()) return true
+        return trimmed.last() in ".!?…\n"
+    }
+
     fun onKeyPress(code: Int, feedback: Boolean = true, commaSpace: Boolean = false) {
         val ic = currentInputConnection ?: return
         if (feedback) giveFeedback()
 
-        // запоминаем и сбрасываем флаг: он живёт только до следующей клавиши
         val hadAutoSpace = autoSpaceAfterComma
         autoSpaceAfterComma = false
 
         when (code) {
             KeyboardView.KEY_DELETE -> deleteBackward(ic)
             KeyboardView.KEY_ENTER -> sendEnter(ic)
-            // если пробел после запятой уже стоит, второй не добавляем
             KeyboardView.KEY_SPACE -> if (!hadAutoSpace) ic.commitText(" ", 1)
             else -> if (code > 0) {
                 if (commaSpace && code == 44) { // 44 = ','
@@ -58,6 +83,13 @@ class KeyboardService : InputMethodService() {
                     ic.commitText(String(Character.toChars(code)), 1)
                 }
             }
+        }
+
+        // Shift считаем по реальному тексту
+        keyboardView?.syncShift(needsCapital())
+        if (code == KeyboardView.KEY_ENTER) {
+            // чат мог очистить поле после отправки: проверяем ещё раз чуть позже
+            keyboardView?.postDelayed({ keyboardView?.syncShift(needsCapital()) }, 120)
         }
     }
 
@@ -76,7 +108,6 @@ class KeyboardService : InputMethodService() {
                     }
                 }
             } catch (e: Exception) {
-                // нет разрешения VIBRATE или вибромотора: просто пропускаем
             }
         }
 
