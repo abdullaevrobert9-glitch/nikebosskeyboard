@@ -15,6 +15,9 @@ class KeyboardService : InputMethodService() {
 
     private var keyboardView: KeyboardView? = null
 
+    // true, если последним мы сами поставили пробел после запятой
+    private var autoSpaceAfterComma = false
+
     private val vibrator: Vibrator by lazy {
         getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
@@ -30,18 +33,31 @@ class KeyboardService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        autoSpaceAfterComma = false
         keyboardView?.onShow()
     }
 
-    fun onKeyPress(code: Int, feedback: Boolean = true) {
+    fun onKeyPress(code: Int, feedback: Boolean = true, commaSpace: Boolean = false) {
         val ic = currentInputConnection ?: return
         if (feedback) giveFeedback()
+
+        // запоминаем и сбрасываем флаг: он живёт только до следующей клавиши
+        val hadAutoSpace = autoSpaceAfterComma
+        autoSpaceAfterComma = false
 
         when (code) {
             KeyboardView.KEY_DELETE -> deleteBackward(ic)
             KeyboardView.KEY_ENTER -> sendEnter(ic)
-            KeyboardView.KEY_SPACE -> ic.commitText(" ", 1)
-            else -> if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
+            // если пробел после запятой уже стоит, второй не добавляем
+            KeyboardView.KEY_SPACE -> if (!hadAutoSpace) ic.commitText(" ", 1)
+            else -> if (code > 0) {
+                if (commaSpace && code == 44) { // 44 = ','
+                    ic.commitText(", ", 1)
+                    autoSpaceAfterComma = true
+                } else {
+                    ic.commitText(String(Character.toChars(code)), 1)
+                }
+            }
         }
     }
 

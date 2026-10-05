@@ -68,7 +68,7 @@ class KeyboardView(context: Context) : View(context) {
     private val active = HashMap<Int, Key>() // id пальца -> нажатая клавиша
 
     private val dp = resources.displayMetrics.density
-    private val pad = 3f * dp
+    private val pad = 5f * dp
     private val radius = 8f * dp
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -254,11 +254,21 @@ class KeyboardView(context: Context) : View(context) {
         if (rows.isEmpty() || height == 0) return null
         val rowHeight = height.toFloat() / rows.size
         val r = (y / rowHeight).toInt().coerceIn(0, rows.size - 1)
+        var best: Key? = null
+        var bestDist = Float.MAX_VALUE
         for (k in rows[r]) {
             if (k.kind == Kind.SPACER) continue
-            if (x >= k.rect.left - pad / 2 && x <= k.rect.right + pad / 2) return k
+            val d = when {
+                x < k.rect.left -> k.rect.left - x
+                x > k.rect.right -> x - k.rect.right
+                else -> 0f
+            }
+            if (d < bestDist) {
+                bestDist = d
+                best = k
+            }
         }
-        return null
+        return best
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -293,8 +303,12 @@ class KeyboardView(context: Context) : View(context) {
             Kind.CHAR -> {
                 val upper = !symbols && shift != ShiftState.OFF
                 val text = if (upper) k.label.uppercase() else k.label
-                service?.onKeyPress(text.codePointAt(0))
+                service?.onKeyPress(text.codePointAt(0), commaSpace = !symbols && text == ",")
                 if (shift == ShiftState.ONCE) shift = ShiftState.OFF
+                // после конца предложения следующая буква заглавная (Caps Lock не трогаем)
+                if (!symbols && shift == ShiftState.OFF && (text == "." || text == "!" || text == "?")) {
+                    shift = ShiftState.ONCE
+                }
             }
             Kind.SPACE -> service?.onKeyPress(KEY_SPACE)
             Kind.ENTER -> service?.onKeyPress(KEY_ENTER)
