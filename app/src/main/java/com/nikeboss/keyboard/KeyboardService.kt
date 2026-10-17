@@ -74,6 +74,7 @@ class KeyboardService : InputMethodService() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
+suggestionAdapter.updateList(listOf("тест", "слово", "привет"))
 
         root.addView(recycler)
         root.addView(view)
