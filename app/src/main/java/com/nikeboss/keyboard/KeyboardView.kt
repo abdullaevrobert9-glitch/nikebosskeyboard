@@ -1,4 +1,4 @@
-package com.nikeboss.keyboard
+цpackage com.nikeboss.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -50,9 +50,9 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private val ruRows = listOf(
-        listOf("й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ"),
+        listOf("й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х"),
         listOf("ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э"),
-        listOf("я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "ё")
+        listOf("я", "ч", "с", "м", "и", "т", "ь", "б", "ю")
     )
     private val enRows = listOf(
         listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -76,6 +76,8 @@ class KeyboardView(context: Context) : View(context) {
         "u" to listOf("ù", "ú", "û", "ü"),
         "c" to listOf("ç"),
         "n" to listOf("ñ")
+        "е" to listOf("ё"),
+        "ь" to listOf("ъ"),
     )
 
     // ───────────────────────── смайлы ─────────────────────────
