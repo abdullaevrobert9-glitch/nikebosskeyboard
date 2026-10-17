@@ -1,4 +1,4 @@
-цpackage com.nikeboss.keyboard
+package com.nikeboss.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -75,7 +75,7 @@ class KeyboardView(context: Context) : View(context) {
         "o" to listOf("ò", "ó", "ô", "ö", "õ"),
         "u" to listOf("ù", "ú", "û", "ü"),
         "c" to listOf("ç"),
-        "n" to listOf("ñ")
+        "n" to listOf("ñ"),
         "е" to listOf("ё"),
         "ь" to listOf("ъ"),
     )
