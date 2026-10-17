@@ -11,6 +11,9 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.widget.LinearLayout
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 
 class KeyboardService : InputMethodService() {
 
@@ -19,6 +22,14 @@ class KeyboardService : InputMethodService() {
     // true, если последним мы сами поставили пробел после запятой
     private var autoSpaceAfterComma = false
 
+    // true, если предыдущий символ был пробелом (для «двойной пробел → точка»)
+    private var lastCharWasSpace = false
+
+    // Подсказки и словарь
+    private lateinit var dictionaryHelper: DictionaryHelper
+    private lateinit var suggestionAdapter: SuggestionAdapter
+    private var suggestionRecyclerView: RecyclerView? = null
+
     private val vibrator: Vibrator by lazy {
         getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
@@ -26,15 +37,53 @@ class KeyboardService : InputMethodService() {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        dictionaryHelper = DictionaryHelper(this)
+        dictionaryHelper.loadDictionary()
+    }
+
     override fun onCreateInputView(): View {
+        // Корневой вертикальный контейнер: подсказки сверху, клавиатура снизу
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Полоска подсказок
+        val recycler = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(
+                this@KeyboardService,
+                LinearLayoutManager.HORIZONTAL,
+                false
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                100 // высота в пикселях
+            )
+        }
+        suggestionAdapter = SuggestionAdapter { word ->
+            commitSuggestion(word)
+        }
+        recycler.adapter = suggestionAdapter
+        suggestionRecyclerView = recycler
+
+        // Твоя клавиатура
         val view = KeyboardView(this)
         keyboardView = view
-        return view
+        view.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+
+        root.addView(recycler)
+        root.addView(view)
+        return root
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         autoSpaceAfterComma = false
+        lastCharWasSpace = false
         keyboardView?.onShow()
     }
 
@@ -55,11 +104,11 @@ class KeyboardService : InputMethodService() {
         val ic = currentInputConnection ?: return false
         val before = ic.getTextBeforeCursor(16, 0)?.toString() ?: return false
 
-        if (before.isEmpty()) return true            // начало поля
-        if (before.last() == '\n') return true       // новая строка
+        if (before.isEmpty()) return true
+        if (before.last() == '\n') return true
 
         val trimmed = before.trimEnd(' ', '\t')
-        if (trimmed.length == before.length) return false // после знака нет пробела
+        if (trimmed.length == before.length) return false
         if (trimmed.isEmpty()) return true
         return trimmed.last() in ".!?…\n"
     }
@@ -72,10 +121,29 @@ class KeyboardService : InputMethodService() {
         autoSpaceAfterComma = false
 
         when (code) {
-            KeyboardView.KEY_DELETE -> deleteBackward(ic)
-            KeyboardView.KEY_ENTER -> sendEnter(ic)
-            KeyboardView.KEY_SPACE -> if (!hadAutoSpace) ic.commitText(" ", 1)
+            KeyboardView.KEY_DELETE -> {
+                lastCharWasSpace = false
+                deleteBackward(ic)
+            }
+            KeyboardView.KEY_ENTER -> {
+                lastCharWasSpace = false
+                sendEnter(ic)
+            }
+            KeyboardView.KEY_SPACE -> {
+                if (!hadAutoSpace) {
+                    // Двойной пробел → точка + пробел
+                    if (lastCharWasSpace) {
+                        ic.deleteSurroundingText(1, 0) // удаляем последний пробел
+                        ic.commitText(". ", 1)
+                        lastCharWasSpace = false
+                    } else {
+                        ic.commitText(" ", 1)
+                        lastCharWasSpace = true
+                    }
+                }
+            }
             else -> if (code > 0) {
+                lastCharWasSpace = false
                 if (commaSpace && code == 44) { // 44 = ','
                     ic.commitText(", ", 1)
                     autoSpaceAfterComma = true
@@ -85,10 +153,12 @@ class KeyboardService : InputMethodService() {
             }
         }
 
+        // Обновляем подсказки по текущему слову
+        updateSuggestionsFromCursor()
+
         // Shift считаем по реальному тексту
         keyboardView?.syncShift(needsCapital())
         if (code == KeyboardView.KEY_ENTER) {
-            // чат мог очистить поле после отправки: проверяем ещё раз чуть позже
             keyboardView?.postDelayed({ keyboardView?.syncShift(needsCapital()) }, 120)
         }
     }
@@ -98,7 +168,44 @@ class KeyboardService : InputMethodService() {
         val ic = currentInputConnection ?: return
         if (feedback) giveFeedback()
         autoSpaceAfterComma = false
+        lastCharWasSpace = false
         ic.commitText(text, 1)
+        updateSuggestionsFromCursor()
+    }
+
+    /** Берём слово перед курсором и просим подсказки. */
+    private fun updateSuggestionsFromCursor() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(30, 0)?.toString() ?: ""
+        // Отрезаем всё до последнего пробела/знака
+        val word = before.split(' ', '\n', '\t', '.', ',', '!', '?', '…')
+            .lastOrNull()?.lowercase() ?: ""
+        updateSuggestions(word)
+    }
+
+    /** Публичный метод — можно вызвать снаружи. */
+    fun updateSuggestions(text: String) {
+        if (text.isBlank()) {
+            suggestionAdapter.updateList(emptyList())
+            return
+        }
+        val words = dictionaryHelper.getSuggestions(text)
+        suggestionAdapter.updateList(words)
+    }
+
+    /** Пользователь нажал на подсказку. */
+    private fun commitSuggestion(word: String) {
+        val ic = currentInputConnection ?: return
+        // Находим слово перед курсором и заменяем его
+        val before = ic.getTextBeforeCursor(30, 0)?.toString() ?: ""
+        val prefixLen = before.split(' ', '\n', '\t', '.', ',', '!', '?', '…')
+            .lastOrNull()?.length ?: 0
+        if (prefixLen > 0) {
+            ic.deleteSurroundingTextInCodePoints(prefixLen, 0)
+        }
+        ic.commitText(word, 1)
+        suggestionAdapter.updateList(emptyList())
+        keyboardView?.syncShift(needsCapital())
     }
 
     // Вибрация и звук никогда не должны ронять набор текста
@@ -132,7 +239,6 @@ class KeyboardService : InputMethodService() {
         if (!selected.isNullOrEmpty()) {
             ic.commitText("", 1)
         } else {
-            // смайл вроде сердца состоит из двух кодовых точек (символ + FE0F): удаляем целиком
             val before = ic.getTextBeforeCursor(2, 0)
             val n = if (before != null && before.isNotEmpty() && before.last() == '\uFE0F') 2 else 1
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

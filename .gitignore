@@ -1,0 +1,17 @@
+# Keystore — НИКОГДА не коммитить
+*.jks
+*.keystore
+key.base64
+*.base64
+base64.save
+
+# Android build
+*.apk
+*.aab
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
