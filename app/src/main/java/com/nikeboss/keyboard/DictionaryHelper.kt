@@ -6,7 +6,13 @@ import java.io.InputStreamReader
 
 class DictionaryHelper(private val context: Context) {
 
-    private val allWords = mutableListOf<String>()
+    // Узел нашего дерева
+    class TrieNode {
+        val children = HashMap<Char, TrieNode>()
+        var isWord = false
+    }
+
+    private val root = TrieNode()
 
     fun loadDictionary() {
         try {
@@ -16,7 +22,7 @@ class DictionaryHelper(private val context: Context) {
                 lines.forEach { line ->
                     val word = line.trim().lowercase()
                     if (word.isNotEmpty()) {
-                        allWords.add(word)
+                        insertWord(word)
                     }
                 }
             }
@@ -25,53 +31,46 @@ class DictionaryHelper(private val context: Context) {
         }
     }
 
+    // Добавляем слово в дерево
+    private fun insertWord(word: String) {
+        var current = root
+        for (char in word) {
+            if (!current.children.containsKey(char)) {
+                current.children[char] = TrieNode()
+            }
+            current = current.children[char]!!
+        }
+        current.isWord = true
+    }
+
+    // Ищем подсказки
     fun getSuggestions(input: String, maxSuggestions: Int = 5): List<String> {
         if (input.isBlank()) return emptyList()
         val lowerInput = input.lowercase()
+        
+        // 1. Спускаемся по дереву до последней введенной буквы
+        var current = root
+        for (char in lowerInput) {
+            if (!current.children.containsKey(char)) {
+                return emptyList() // Такого слова нет
+            }
+            current = current.children[char]!!
+        }
+
+        // 2. Собираем все слова, которые начинаются с этого куска
         val result = mutableListOf<String>()
-
-        for (word in allWords) {
-            if (word.startsWith(lowerInput) && word != lowerInput) {
-                result.add(word)
-            }
-        }
-
-        if (result.size >= maxSuggestions) {
-            return result.take(maxSuggestions)
-        }
-
-        if (lowerInput.length >= 2) {
-            val typos = mutableListOf<Pair<String, Int>>()
-            for (word in allWords) {
-                if (word == lowerInput || result.contains(word)) continue
-                val distance = levenshteinDistance(lowerInput, word)
-                if (distance <= 2) {
-                    typos.add(Pair(word, distance))
-                }
-            }
-            typos.sortBy { it.second }
-            for (item in typos) {
-                if (result.size >= maxSuggestions) break
-                result.add(item.first)
-            }
-        }
+        collectWords(current, lowerInput, result, maxSuggestions)
         return result
     }
 
-    private fun levenshteinDistance(a: String, b: String): Int {
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-        for (i in 1..a.length) {
-            for (j in 1..b.length) {
-                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
-                )
-            }
+    private fun collectWords(node: TrieNode, prefix: String, result: MutableList<String>, max: Int) {
+        if (result.size >= max) return
+        if (node.isWord && prefix != node.toString()) { // Не добавляем само введенное слово
+            result.add(prefix)
         }
-        return dp[a.length][b.length]
+        for ((char, child) in node.children) {
+            collectWords(child, prefix + char, result, max)
+            if (result.size >= max) return
+        }
     }
 }
