@@ -33,6 +33,33 @@ class KeyboardService : InputMethodService() {
     private val vibrator: Vibrator by lazy {
         getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
+
+/** Нужна ли заглавная буква, судя по тексту перед курсором. */
+fun needsCapital(): Boolean {
+    val info = currentInputEditorInfo ?: return false
+    val type = info.inputType
+    if ((type and InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false
+    when (type and InputType.TYPE_MASK_VARIATION) {
+        InputType.TYPE_TEXT_VARIATION_PASSWORD,
+        InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+        InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+        InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+        InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+        InputType.TYPE_TEXT_VARIATION_URI,
+        InputType.TYPE_TEXT_VARIATION_FILTER -> return false
+    }
+    val ic = currentInputConnection ?: return false
+    val before = ic.getTextBeforeCursor(16, 0)?.toString() ?: return false
+
+    if (before.isEmpty()) return true
+    if (before.last() == '\n') return true
+
+    val trimmed = before.trimEnd(' ', '\t')
+    if (trimmed.length == before.length) return false
+    if (trimmed.isEmpty()) return true
+    return trimmed.last() in ".!?…\n"
+}
+
     private val audio: AudioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -59,11 +86,9 @@ class KeyboardService : InputMethodService() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-        setBackgroundColor(android.graphics.Color.RED)
-    }
     
-    suggestionAdapter = SuggestionAdapter { word ->
-        commitSuggestion(word)
+    suggestionAdapter = SuggestionAdapter { 
+        word -> commitSuggestion(word)
     }
     recycler.adapter = suggestionAdapter
     suggestionRecyclerView = recycler
