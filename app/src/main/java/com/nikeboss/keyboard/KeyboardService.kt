@@ -49,53 +49,38 @@ class KeyboardService : InputMethodService() {
             orientation = LinearLayout.VERTICAL
         }
 
-// Полоска подсказок
-val recycler = RecyclerView(this).apply {
-    layoutManager = LinearLayoutManager(
-        this@KeyboardService,
-        LinearLayoutManager.HORIZONTAL,
-        false
-    )
-    // Убираем жесткую высоту, пусть подстраивается под контент (слова)
-    layoutParams = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT,
-        LinearLayout.LayoutParams.WRAP_CONTENT
-    )
-    setBackgroundColor(android.graphics.Color.RED) // Оставляем красный для проверки!
-}
-
-suggestionAdapter = SuggestionAdapter { word ->
-    commitSuggestion(word)
-}
-recycler.adapter = suggestionAdapter
-suggestionRecyclerView = recycler
-
-// Добавляем тестовые слова прямо в адаптер
-suggestionAdapter.updateList(listOf("тест", "слово", "привет"))
-
-// Твоя клавиатура
-val view = KeyboardView(this)
-keyboardView = view
-// ВАЖНО: говорим клавиатуре занимать всё оставшееся место, но не больше
-view.layoutParams = LinearLayout.LayoutParams(
-    LinearLayout.LayoutParams.MATCH_PARENT,
-    0, // Высота 0, чтобы она растянулась (вес 1)
-    1f // Вес 1 означает "займи всё свободное место"
-)
-
-root.addView(recycler)
-root.addView(view)
-return root
-}
-
-        if (before.isEmpty()) return true
-        if (before.last() == '\n') return true
-
-        val trimmed = before.trimEnd(' ', '\t')
-        if (trimmed.length == before.length) return false
-        if (trimmed.isEmpty()) return true
-        return trimmed.last() in ".!?…\n"
+        val recycler = RecyclerView(this).apply {
+        layoutManager = LinearLayoutManager(
+            this@KeyboardService,
+            LinearLayoutManager.HORIZONTAL,
+            false
+        )
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        setBackgroundColor(android.graphics.Color.RED)
     }
+    
+    suggestionAdapter = SuggestionAdapter { word ->
+        commitSuggestion(word)
+    }
+    recycler.adapter = suggestionAdapter
+    suggestionRecyclerView = recycler
+    suggestionAdapter.updateList(listOf("тест", "слово", "привет"))
+
+    val view = KeyboardView(this)
+    keyboardView = view
+    view.layoutParams = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        0,
+        1f
+    )
+
+    root.addView(recycler)
+    root.addView(view)
+    return root
+}
 
     fun onKeyPress(code: Int, feedback: Boolean = true, commaSpace: Boolean = false) {
         val ic = currentInputConnection ?: return
