@@ -49,61 +49,44 @@ class KeyboardService : InputMethodService() {
             orientation = LinearLayout.VERTICAL
         }
 
-        // Полоска подсказок
-        val recycler = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(
-                this@KeyboardService,
-                LinearLayoutManager.HORIZONTAL,
-                false
-            )
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                100 // высота в пикселях
-            )
-        }
-        suggestionAdapter = SuggestionAdapter { word ->
-            commitSuggestion(word)
-        }
-        recycler.adapter = suggestionAdapter
-        suggestionRecyclerView = recycler
+// Полоска подсказок
+val recycler = RecyclerView(this).apply {
+    layoutManager = LinearLayoutManager(
+        this@KeyboardService,
+        LinearLayoutManager.HORIZONTAL,
+        false
+    )
+    // Убираем жесткую высоту, пусть подстраивается под контент (слова)
+    layoutParams = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        LinearLayout.LayoutParams.WRAP_CONTENT
+    )
+    setBackgroundColor(android.graphics.Color.RED) // Оставляем красный для проверки!
+}
 
-        // Твоя клавиатура
-        val view = KeyboardView(this)
-        keyboardView = view
-        view.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        )
+suggestionAdapter = SuggestionAdapter { word ->
+    commitSuggestion(word)
+}
+recycler.adapter = suggestionAdapter
+suggestionRecyclerView = recycler
+
+// Добавляем тестовые слова прямо в адаптер
 suggestionAdapter.updateList(listOf("тест", "слово", "привет"))
 
-        root.addView(recycler)
-        root.addView(view)
-        return root
-    }
+// Твоя клавиатура
+val view = KeyboardView(this)
+keyboardView = view
+// ВАЖНО: говорим клавиатуре занимать всё оставшееся место, но не больше
+view.layoutParams = LinearLayout.LayoutParams(
+    LinearLayout.LayoutParams.MATCH_PARENT,
+    0, // Высота 0, чтобы она растянулась (вес 1)
+    1f // Вес 1 означает "займи всё свободное место"
+)
 
-    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
-        super.onStartInputView(info, restarting)
-        autoSpaceAfterComma = false
-        lastCharWasSpace = false
-        keyboardView?.onShow()
-    }
-
-    /** Нужна ли заглавная буква, судя по тексту перед курсором. */
-    fun needsCapital(): Boolean {
-        val info = currentInputEditorInfo ?: return false
-        val type = info.inputType
-        if ((type and InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false
-        when (type and InputType.TYPE_MASK_VARIATION) {
-            InputType.TYPE_TEXT_VARIATION_PASSWORD,
-            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
-            InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
-            InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
-            InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
-            InputType.TYPE_TEXT_VARIATION_URI,
-            InputType.TYPE_TEXT_VARIATION_FILTER -> return false
-        }
-        val ic = currentInputConnection ?: return false
-        val before = ic.getTextBeforeCursor(16, 0)?.toString() ?: return false
+root.addView(recycler)
+root.addView(view)
+return root
+}
 
         if (before.isEmpty()) return true
         if (before.last() == '\n') return true
