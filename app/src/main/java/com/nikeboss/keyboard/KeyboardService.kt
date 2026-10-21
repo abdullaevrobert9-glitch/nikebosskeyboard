@@ -140,7 +140,7 @@ class KeyboardService : InputMethodService() {
                 lastCharWasSpace = false
                 val char = Character.toChars(code)[0]
                 if (Character.isLetter(char) || char == '\'') {
-                    ic.commitText(String(char), 1)
+                    ic.commitText(char.concatToString(), 1)
                 } else {
                     ic.commitText("$char ", 1)
                     lastCharWasSpace = true
