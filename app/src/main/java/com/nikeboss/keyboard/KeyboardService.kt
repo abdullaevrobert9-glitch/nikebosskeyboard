@@ -61,9 +61,6 @@ class KeyboardService : InputMethodService() {
         }
         recycler.adapter = suggestionAdapter
         suggestionRecyclerView = recycler
-        
-        // ВРЕМЕННО: тестовые слова, чтобы проверить, видно ли полоску
-        suggestionAdapter.updateList(listOf("тест", "слово", "привет"))
 
         // Твоя клавиатура
         val view = KeyboardView(this)
